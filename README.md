@@ -95,7 +95,7 @@ Upgrading from the earlier local ShelfLife version: quit it before starting Pump
 
 ## The 21-second version
 
-[Watch the announcement video](media/launch/Pumpkin-launch.mp4) · [Storyboard](media/launch/Previews/Filmstrip.png) · [Editable Tesseract source](media/launch/Pumpkin.tsrct)
+[Watch the announcement video](https://github.com/baogli/pumpkin/releases/download/v1.0.0/Pumpkin-launch.mp4) · [Storyboard](media/launch/Previews/Filmstrip.png) · [Editable Tesseract source](media/launch/Pumpkin.tsrct)
 
 The video uses actual Pumpkin panels with synthetic demo files and accelerated example timers. The artwork is AI-generated; typography and animation remain editable. See [launch materials](media/launch/README.md).
 

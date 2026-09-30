@@ -1,5 +1,7 @@
 # Pumpkin 1.0.0 🎃
 
+![Pumpkin](https://raw.githubusercontent.com/baogli/pumpkin/v1.0.0/docs/pumpkin-banner.png)
+
 Every file gets its midnight.
 
 Pumpkin gives downloads and screenshots an expiry time, then moves them to the Trash automatically. It lives in the macOS menu bar and keeps everything on your Mac.
@@ -20,3 +22,7 @@ Quit the older ShelfLife app before upgrading. You may need to grant folder perm
 **Validation:** 60 tests and 80 local end-to-end/UI checks passed on macOS 26.5.2 / Xcode 26.6. The bundled executable contains `arm64` and `x86_64` architectures and passes strict signature verification. Checksums are supplied in `SHA256SUMS`.
 
 **Launch kit:** 21-second H.264/AAC announcement video, artwork, actual UI screenshots, and a portable editable Tesseract composition. The video's demo timers are accelerated.
+
+[Watch the 21-second announcement video](https://github.com/baogli/pumpkin/releases/download/v1.0.0/Pumpkin-launch.mp4) · [Twitter/X announcement copy](https://github.com/baogli/pumpkin/blob/v1.0.0/media/launch/ANNOUNCEMENTS.md)
+
+The portable `Pumpkin.tsrct` source is attached for editing the announcement. Hosted CI has not run; this release uses the completed local validation described above.
