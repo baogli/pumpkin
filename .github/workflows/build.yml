@@ -1,0 +1,23 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit and integration tests
+        run: swift test
+      - name: Build universal macOS app
+        run: scripts/build.sh
+      - name: Package app
+        run: scripts/package-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pumpkin-macOS
+          path: |
+            release/Pumpkin-*.zip
+            release/SHA256SUMS

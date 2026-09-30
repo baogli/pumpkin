@@ -1,0 +1,12 @@
+.build/
+.swiftpm/
+dist/
+.DS_Store
+*.xcuserstate
+qa-output/
+release/*.zip
+release/*.dmg
+release/validation/
+media/launch/.tesseract-work/
+__pycache__/
+*.pyc
