@@ -76,15 +76,18 @@ final class PanelController: NSObject {
     private var outsideClickMonitor: Any?
     private var localClickMonitor: Any?
     private var keyMonitor: Any?
+    private var notificationTokens: [NSObjectProtocol] = []
+    private let observeOutsideEvents: Bool
 
     /// For the QA tool.
     var window: NSPanel { panel }
     var contentHost: PanelHostingView { hostingView }
 
-    init(model: AppModel, statusItem: NSStatusItem, workbench: Workbench? = nil) {
+    init(model: AppModel, statusItem: NSStatusItem, workbench: Workbench? = nil, observeOutsideEvents: Bool = true) {
         self.model = model
         self.workbench = workbench
         self.statusItem = statusItem
+        self.observeOutsideEvents = observeOutsideEvents
         if let workbench {
             hostingView = PanelHostingView(rootView: AnyView(UnifiedTransientPanel(presentation: presentation).environment(workbench)))
         } else {
@@ -109,12 +112,14 @@ final class PanelController: NSObject {
             self?.model.isPointerInside = inside
         }
 
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.model.isListOpen = false }
+        if observeOutsideEvents {
+            notificationTokens.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.model.isListOpen = false }
+            })
         }
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+        notificationTokens.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.resizeToFit(animated: false) }
-        }
+        })
 
         observeContinuously { [weak self] in
             self?.sync()
@@ -301,6 +306,7 @@ final class PanelController: NSObject {
     // MARK: - Events
 
     private func updateOutsideClickMonitor(_ listOpen: Bool) {
+        guard observeOutsideEvents else { return }
         if listOpen, outsideClickMonitor == nil {
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
                 MainActor.assumeIsolated { self?.model.isListOpen = false }
@@ -367,6 +373,14 @@ final class PanelController: NSObject {
                 return true
             }
             return false
+        }
+    }
+    deinit {
+        panel.orderOut(nil)
+        for monitor in [outsideClickMonitor, localClickMonitor, keyMonitor].compactMap({ $0 }) { NSEvent.removeMonitor(monitor) }
+        for token in notificationTokens {
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+            NotificationCenter.default.removeObserver(token)
         }
     }
 }

@@ -2,10 +2,27 @@ import AppKit
 import SwiftUI
 import PumpkinCore
 
+enum CleanupClassification {
+    static func kind(of item: TrackedItem) -> ItemKind {
+        if let kind = item.kind.flatMap(ItemKind.init(rawValue:)) { return kind }
+        if item.source == "Pumpkin Recording" { return .recording }
+        return Screenshots.isTaggedScreenCapture(item.url) ? .screenshot : .download
+    }
+    static func kind(of record: TrashRecord, recordings: [RecordingEntry]) -> ItemKind {
+        if let kind = record.kind.flatMap(ItemKind.init(rawValue:)) { return kind }
+        let url = URL(fileURLWithPath: record.trashedPath ?? record.originalPath)
+        if recordings.contains(where: { $0.matches(url) }) { return .recording }
+        return Screenshots.isTaggedScreenCapture(url) ? .screenshot : .download
+    }
+}
+
 struct CleanupWorkspace: View {
     @Environment(Workbench.self) private var workbench
     @State private var filter = 0
     private var files: AppModel { workbench.files }
+    private var shownPrompts: [PromptBatch] { files.prompts.filter { matches($0.kind) } }
+    private var shownItems: [TrackedItem] { files.sortedItems.filter { matches(CleanupClassification.kind(of: $0)) } }
+    private var shownHistory: [TrashRecord] { files.history.filter { matches(CleanupClassification.kind(of: $0, recordings: files.recordings)) } }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { ScreenHeader(title: workbench.text("Очистка", "Cleanup"), subtitle: workbench.text("Загрузки и скриншоты: срок → Корзина → вернуть", "Downloads and screenshots: expiry → Trash → restore")); Spacer(); Button(files.isPaused ? workbench.text("Продолжить", "Resume timers") : workbench.text("Пауза таймеров", "Pause timers")) { files.togglePause() }.buttonStyle(PumpkinButtonStyle()) }
@@ -15,16 +32,17 @@ struct CleanupWorkspace: View {
                     if let problem = files.folderProblem { issue(problem) }
                     if let problem = files.screenshotProblem { issue(problem) }
                     if workbench.recorder.busy { Text(workbench.text("Во время записи вопросы и уведомления не всплывают. Таймеры продолжают работать, если не на паузе.", "During recording, prompts are deferred. Timers continue unless paused.")).font(.caption).foregroundStyle(.secondary) }
-                    ForEach(files.prompts.filter { filter == 0 || (filter == 1 && $0.kind == .download) || (filter == 2 && $0.kind == .screenshot) || (filter == 3 && $0.kind == .recording) }) { batch in
+                    ForEach(shownPrompts) { batch in
                         GlassCard { pending(batch) }
                     }
-                    HStack { Text(workbench.text("С таймером", "Expiring files")).font(.headline); Text("· \(files.items.count)").foregroundStyle(.secondary) }.padding(.top, 8)
-                    if files.items.isEmpty && files.prompts.isEmpty {
+                    HStack { Text(workbench.text("С таймером", "Expiring files")).font(.headline); Text("· \(shownItems.count)").foregroundStyle(.secondary) }.padding(.top, 8)
+                    if shownItems.isEmpty && shownPrompts.isEmpty {
                         GlassCard { VStack(spacing: 12) { Image(systemName: "leaf").font(.largeTitle).foregroundStyle(GlassPalette.sage); Text(workbench.text("Всё спокойно", "All clear")).font(.title2.bold()); Text(workbench.text("Новые загрузки и скриншоты появятся здесь. Файлы до первого запуска не трогаем.", "New downloads and screenshots appear here. Files from before your first launch are left alone.")).multilineTextAlignment(.center).foregroundStyle(.secondary); Button(workbench.text("Настроить папки", "Set up folders")) { workbench.section = .settings } }.padding(18).frame(maxWidth: .infinity) }
                     }
-                    ForEach(files.sortedItems.filter(matches)) { item in GlassCard(padding: 16) { tracked(item) } }
+                    ForEach(shownItems) { item in GlassCard(padding: 16) { tracked(item) } }
                     HStack { Text(workbench.text("Недавно в Корзине", "Recently trashed")).font(.headline); Text(workbench.text("Pumpkin не очищает Корзину", "Pumpkin never empties the Trash")).font(.caption).foregroundStyle(.secondary) }.padding(.top, 10)
-                    ForEach(files.history.prefix(30)) { record in
+                    if shownHistory.isEmpty { Text(workbench.text("В этой категории пока нет истории", "No history in this category yet")).font(.caption).foregroundStyle(.secondary) }
+                    ForEach(shownHistory.prefix(30)) { record in
                         GlassCard(padding: 13) {
                             HStack { Image(systemName: "trash").foregroundStyle(GlassPalette.sage); VStack(alignment: .leading, spacing: 4) { Text(record.name).font(.headline).lineLimit(1); Text(record.restoredAt != nil ? workbench.text("Восстановлен", "Restored") : record.canPutBack ? workbench.text("В Корзине", "In the Trash") : workbench.text("Больше нет в Корзине", "No longer in the Trash")).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button(workbench.text("Вернуть", "Put back")) { files.putBack([record]) }.buttonStyle(PumpkinButtonStyle()).disabled(!record.canPutBack) }
                         }
@@ -34,11 +52,8 @@ struct CleanupWorkspace: View {
             }
         }
     }
-    private func matches(_ item: TrackedItem) -> Bool {
-        if filter == 0 { return true }
-        let recording = item.source == "Pumpkin Recording"
-        let screenshot = Screenshots.isScreenCapture(item.url)
-        return filter == 3 ? recording : filter == 2 ? screenshot : !recording && !screenshot
+    private func matches(_ kind: ItemKind) -> Bool {
+        filter == 0 || (filter == 1 && kind == .download) || (filter == 2 && kind == .screenshot) || (filter == 3 && kind == .recording)
     }
     private func pending(_ batch: PromptBatch) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -51,11 +66,11 @@ struct CleanupWorkspace: View {
     private func tracked(_ item: TrackedItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Image(nsImage: FileIcons.icon(path: item.path, isFolder: item.isFolder)).resizable().frame(width: 32, height: 32); VStack(alignment: .leading, spacing: 4) { Text(item.name).font(.headline).lineLimit(1).truncationMode(.middle); Text(item.expiresAt, style: .date).font(.caption).foregroundStyle(.secondary) }; Spacer(); TimelineView(.periodic(from: .now, by: 1)) { context in Text(files.isPaused ? workbench.text("Пауза", "Paused") : Formatting.compactRemaining(item.remaining(at: files.clock(context.date)))).font(.headline.monospacedDigit()).foregroundStyle(item.remaining(at: files.clock(context.date)) < 600 ? .red : GlassPalette.orange) } }
-            if let error = item.lastError { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error = item.lastError { Text(workbench.message(error)).font(.caption).foregroundStyle(.red) }
             HStack {
                 Menu(workbench.text("Изменить срок", "Change expiry")) { ForEach(ShelfDuration.standardStops) { duration in Button(durationLabel(duration, workbench: workbench)) { files.setTimer(for: item.id, to: duration) } } }
                 Button(workbench.text("Оставить навсегда", "Keep forever")) { files.keepForever(item.id) }.buttonStyle(PumpkinButtonStyle())
-                Button { NSWorkspace.shared.activateFileViewerSelecting([item.url]) } label: { Image(systemName: "folder") }.help(item.path)
+                Button { files.reveal(item) } label: { Image(systemName: "folder") }.help(item.path)
             }
         }
     }

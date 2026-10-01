@@ -35,7 +35,10 @@ struct RecordingOptions: Codable, Equatable {
 
 @MainActor @Observable
 final class RecorderModel {
-    enum Phase: String { case idle, preparing, countdown, recording, finalizing, monitoring }
+    enum Phase: String {
+        case idle, preparing, countdown, recording, finalizing, monitoring
+        var canStart: Bool { self == .idle || self == .monitoring }
+    }
     private(set) var phase: Phase = .idle
     private(set) var displays: [DisplayChoice] = []
     private(set) var devices: [InputDevice] = []
@@ -54,7 +57,7 @@ final class RecorderModel {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let files: AppModel
     @ObservationIgnored private let deviceProvider: () -> [InputDevice]
-    @ObservationIgnored private let displayProvider: () -> [DisplayChoice]
+    @ObservationIgnored private let displayProvider: @MainActor () -> [DisplayChoice]
     @ObservationIgnored private var session: RecordingSession?
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var timer: Timer?
@@ -82,7 +85,7 @@ final class RecorderModel {
     var audioDescription: String { options.withAudio ? "\(selectedDevice?.name ?? "?") · Input \(options.left) → L · Input \(options.right) → R" : "Without audio" }
     var formatDescription: String { "\(dimensions.0) × \(dimensions.1) · \(options.fps) fps · \(options.hevc ? "HEVC" : "H.264")" }
 
-    init(files: AppModel, defaults: UserDefaults = .standard, deviceProvider: @escaping () -> [InputDevice] = Devices.inputs, displayProvider: @escaping () -> [DisplayChoice] = RecorderModel.systemDisplays) {
+    init(files: AppModel, defaults: UserDefaults = .standard, deviceProvider: @escaping () -> [InputDevice] = Devices.inputs, displayProvider: @escaping @MainActor () -> [DisplayChoice] = RecorderModel.systemDisplays) {
         self.files = files; self.defaults = defaults; self.deviceProvider = deviceProvider; self.displayProvider = displayProvider
         options = defaults.data(forKey: "v2.recordingOptions").flatMap { try? JSONDecoder().decode(RecordingOptions.self, from: $0) } ?? RecordingOptions()
         options.fps = options.fps == 60 ? 60 : 30
@@ -171,7 +174,7 @@ final class RecorderModel {
         revision += 1; let expected = revision
         value.onMeter = { [weak self] l, r, dropped in
             DispatchQueue.main.async {
-                guard let self, self.revision == expected else { return }
+                guard let self, self.revision == expected, self.phase != .idle, self.phase != .finalizing else { return }
                 self.levelL = l; self.levelR = r
                 if max(l, r) > 0.0005 {
                     self.lastSignal = Date()
@@ -294,7 +297,8 @@ final class RecorderModel {
         let (result, _) = await current.stop(); session = nil; startDate = nil; levelL = 0; levelR = 0
         if let id = entryID {
             if let result, case .success(let url) = result {
-                let duration = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? elapsed
+                let measured = try? await AVURLAsset(url: url).load(.duration).seconds
+                let duration = measured.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? elapsed
                 files.finishRecording(id, duration: duration); resultID = id; warning = pendingError ?? warning
             } else {
                 let message: String
@@ -315,5 +319,12 @@ final class RecorderModel {
         let duration = try await asset.load(.duration).seconds
         guard !videos.isEmpty, duration.isFinite, duration > 0 else { throw RecorderError(message: "The selected MP4 has no playable video.") }
         try files.importRecording(url, duration: duration)
+    }
+    deinit {
+        operation?.cancel(); timer?.invalidate()
+        for token in observerTokens {
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 }

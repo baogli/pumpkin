@@ -34,6 +34,10 @@ public enum ItemLocator {
     /// merely has the same name is never mistaken for it.
     public static func locate(_ item: TrackedItem) -> ItemLocation {
         var found: URL?
+        func matches(_ url: URL) -> Bool {
+            var info = stat()
+            return lstat(url.path, &info) == 0 && UInt64(info.st_ino) == item.fileID && (item.volumeID == nil || UInt64(info.st_dev) == item.volumeID)
+        }
 
         if let bookmark = item.bookmark {
             var stale = false
@@ -42,11 +46,11 @@ public enum ItemLocator {
                 options: [.withoutUI, .withoutMounting],
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
-            ), FolderScanner.fileID(of: url) == item.fileID {
+            ), matches(url) {
                 found = url
             }
         }
-        if found == nil, FolderScanner.fileID(of: item.url) == item.fileID {
+        if found == nil, matches(item.url) {
             found = item.url
         }
 
@@ -56,6 +60,16 @@ public enum ItemLocator {
 
     public static func isDirectChild(_ url: URL, of folder: URL) -> Bool {
         canonicalPath(url.deletingLastPathComponent()) == canonicalPath(folder)
+    }
+
+    public static func volumeID(of url: URL) -> UInt64? {
+        var info = stat()
+        return lstat(url.path, &info) == 0 ? UInt64(info.st_dev) : nil
+    }
+
+    public static func isInTrash(_ url: URL) -> Bool {
+        let components = url.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        return components.contains(".Trash") || components.contains(".Trashes")
     }
 
     public static func canonicalPath(_ url: URL) -> String {
@@ -108,7 +122,10 @@ public struct ExpiryEngine {
                     trashedPath: trashed?.path,
                     trashedAt: now,
                     isFolder: item.isFolder,
-                    size: item.size
+                    size: item.size,
+                    kind: item.kind,
+                    fileID: FolderScanner.fileID(of: trashed ?? url),
+                    volumeID: ItemLocator.volumeID(of: trashed ?? url)
                 ))
             } catch {
                 return .failed(error.localizedDescription)
@@ -120,7 +137,7 @@ public struct ExpiryEngine {
     /// original one has been taken in the meantime.
     @discardableResult
     public static func putBack(_ record: TrashRecord) throws -> URL {
-        guard let trashedPath = record.trashedPath, FileManager.default.fileExists(atPath: trashedPath) else {
+        guard record.canPutBack, let trashedPath = record.trashedPath else {
             throw PutBackError.noLongerInTrash
         }
         let original = URL(fileURLWithPath: record.originalPath)

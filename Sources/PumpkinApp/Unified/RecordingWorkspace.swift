@@ -32,7 +32,7 @@ struct RecordingWorkspace: View {
                     }
                 }.padding(.bottom, 8)
             }
-            if recorder.phase == .idle && recorder.resultID == nil { recordingFooter }
+            if recorder.phase.canStart && recorder.resultID == nil { recordingFooter }
         }.sheet(item: $assigning) { entry in
             VStack(alignment: .leading, spacing: 18) {
                 Text(workbench.text("Сколько хранить запись?", "How long to keep this recording?")).font(.title2.bold())
@@ -88,7 +88,7 @@ struct RecordingWorkspace: View {
     }
     private var recordingFooter: some View {
         GlassCard(padding: 14) {
-                HStack { VStack(alignment: .leading, spacing: 4) { Text(recorder.selectedDisplay?.name ?? workbench.text("Выбери экран", "Choose a display")).font(.headline); Text(recorder.formatDescription).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button { workbench.requestRecording() } label: { Label(workbench.text("Начать запись", "Start recording"), systemImage: "record.circle") }.buttonStyle(PumpkinButtonStyle(primary: true)).disabled(!recorder.ready || !workbench.prefs.recordingEnabled || recorder.phase != .idle) }
+                HStack { VStack(alignment: .leading, spacing: 4) { Text(recorder.selectedDisplay?.name ?? workbench.text("Выбери экран", "Choose a display")).font(.headline); Text(recorder.formatDescription).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button { workbench.requestRecording() } label: { Label(workbench.text("Начать запись", "Start recording"), systemImage: "record.circle") }.buttonStyle(PumpkinButtonStyle(primary: true)).disabled(!recorder.ready || !workbench.prefs.recordingEnabled || !recorder.phase.canStart) }
             }
     }
     private var audioSettings: some View {
@@ -153,7 +153,7 @@ struct RecordingWorkspace: View {
     }
     private func recordingRow(_ entry: RecordingEntry) -> some View {
         let url = entry.locatedURL
-        let trashed = workbench.files.history.first { $0.originalPath == entry.path && $0.canPutBack }
+        let trashed = workbench.files.recordingTrash(entry)
         let timer = workbench.files.items.first { item in url.map { item.fileID == FolderScanner.fileID(of: $0) && item.folderPath == $0.deletingLastPathComponent().path } ?? false }
         return VStack(alignment: .leading, spacing: 10) {
             HStack { Image(systemName: "film").foregroundStyle(GlassPalette.orange); Text(url?.lastPathComponent ?? entry.url.lastPathComponent).font(.headline).lineLimit(1).truncationMode(.middle); Spacer(); if entry.status != .finished { StatusPill(title: workbench.text("Незавершённая", "Unfinished"), symbol: "exclamationmark.triangle", color: .orange) } }
@@ -162,7 +162,7 @@ struct RecordingWorkspace: View {
             if let error = entry.error { Text(workbench.message(error)).font(.caption).foregroundStyle(.red) }
             if let trashed {
                 HStack { Text(workbench.text("В Корзине", "In the Trash")).font(.caption).foregroundStyle(.secondary); Spacer(); Button(workbench.text("Вернуть", "Put back")) { workbench.files.putBack([trashed]) }.buttonStyle(PumpkinButtonStyle()) }
-            } else if entry.status == .finished, let url {
+            } else if entry.status == .finished, let url, !ItemLocator.isInTrash(url) {
                 HStack {
                     Button(workbench.text("Открыть", "Open")) { NSWorkspace.shared.open(url) }
                     Button("Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
@@ -181,7 +181,7 @@ struct RecordingWorkspace: View {
     }
     private func importVideos() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = false; panel.allowsMultipleSelection = true; panel.allowedContentTypes = [.mpeg4Movie]
-        if panel.runModal() == .OK { Task { for url in panel.urls { do { try await recorder.importVideo(url) } catch { workbench.notice = workbench.message(error.localizedDescription) } } } }
+        if panel.runModal() == .OK { Task { for url in panel.urls { do { try await recorder.importVideo(url) } catch { workbench.notice = workbench.message(error.localizedDescription); workbench.noticeIsError = true } } } }
     }
 }
 

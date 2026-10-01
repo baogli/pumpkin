@@ -61,6 +61,8 @@ final class ClipboardHistory {
     @ObservationIgnored private var seen: Int
     @ObservationIgnored private var deliveryRevision = 0
     @ObservationIgnored private var activeLease: (PasteboardSnapshot, String, Int)?
+    @ObservationIgnored private var activeCompletion: ((Bool) -> Void)?
+    @ObservationIgnored private var sent = false
     var entries: [ClipboardEntry] { tail.entries }
     init(pasteboard: NSPasteboard = .general) { self.pasteboard = pasteboard; seen = pasteboard.changeCount }
     func setEnabled(_ value: Bool) {
@@ -79,48 +81,52 @@ final class ClipboardHistory {
         guard pasteboard.string(forType: .pumpkinTemporary) == nil, let text = pasteboard.string(forType: .string) else { return }
         tail.capture(text, types: types)
     }
-    func clear() { tail.clear(); message = nil }
+    func clear() { cancelDelivery(); tail.clear(); message = nil }
     func cancelDelivery() {
         deliveryRevision += 1
         if let (snapshot, token, count) = activeLease, snapshot.restore(to: pasteboard, ifOwnedBy: token, changeCount: count) { seen = pasteboard.changeCount }
         activeLease = nil; delivering = false
+        let completion = activeCompletion; activeCompletion = nil
+        completion?(sent); sent = false
     }
     func copy(_ entry: ClipboardEntry) {
         pasteboard.clearContents(); pasteboard.setString(entry.text, forType: .string)
         seen = pasteboard.changeCount
     }
     func paste(_ entry: ClipboardEntry, target: NSRunningApplication?, focusedElement: AXUIElement?, completion: @escaping (Bool) -> Void) {
-        guard !delivering, AXIsProcessTrusted(), let target, !target.isTerminated, target.processIdentifier != ProcessInfo.processInfo.processIdentifier,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier,
-              Self.focusMatches(target.processIdentifier, element: focusedElement) else { completion(false); return }
+        guard AXIsProcessTrusted(), let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier else { completion(false); return }
+        paste(entry, validate: {
+            !target.isTerminated && NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier && Self.focusMatches(target.processIdentifier, element: focusedElement)
+        }, send: {
+            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true), let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else { return false }
+            down.flags = .maskCommand; up.flags = .maskCommand
+            down.postToPid(target.processIdentifier); up.postToPid(target.processIdentifier)
+            return true
+        }, completion: completion)
+    }
+    // Revalidate the original field immediately before sending; a changed focus
+    // or a newer copy must win over the queued paste and its later restoration.
+    func paste(_ entry: ClipboardEntry, validate: @escaping () -> Bool, send: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
+        guard enabled, !delivering, validate() else { completion(false); return }
         let snapshot = PasteboardSnapshot(pasteboard), token = UUID().uuidString
         let item = NSPasteboardItem(); item.setString(entry.text, forType: .string); item.setString(token, forType: .pumpkinTemporary)
         pasteboard.clearContents(); pasteboard.writeObjects([item]); seen = pasteboard.changeCount
         let ownedCount = seen
         activeLease = (snapshot, token, ownedCount); delivering = true
+        activeCompletion = completion; sent = false
         deliveryRevision += 1; let revision = deliveryRevision
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             guard let self, self.deliveryRevision == revision else { return }
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier,
-                  Self.focusMatches(target.processIdentifier, element: focusedElement),
+            guard validate(),
                   self.pasteboard.changeCount == ownedCount,
                   self.pasteboard.string(forType: .pumpkinTemporary) == token else {
-                if snapshot.restore(to: self.pasteboard, ifOwnedBy: token, changeCount: ownedCount) { self.seen = self.pasteboard.changeCount }
-                self.activeLease = nil; self.delivering = false
-                completion(false); return
+                self.cancelDelivery(); return
             }
-            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: true), let up = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: false) else {
-                if snapshot.restore(to: self.pasteboard, ifOwnedBy: token, changeCount: ownedCount) { self.seen = self.pasteboard.changeCount }
-                self.activeLease = nil; self.delivering = false
-                completion(false); return
-            }
-            down.flags = .maskCommand; up.flags = .maskCommand
-            down.postToPid(target.processIdentifier); up.postToPid(target.processIdentifier)
+            guard send() else { self.cancelDelivery(); return }
+            self.sent = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 guard self.deliveryRevision == revision else { return }
-                if snapshot.restore(to: self.pasteboard, ifOwnedBy: token, changeCount: ownedCount) { self.seen = self.pasteboard.changeCount }
-                self.activeLease = nil; self.delivering = false
-                completion(true)
+                self.cancelDelivery()
             }
         }
     }
@@ -128,8 +134,19 @@ final class ClipboardHistory {
         guard let element else { return false }
         var current: CFTypeRef?
         guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXFocusedUIElementAttribute as CFString, &current) == .success, let current else { return false }
-        return CFEqual(element, current)
+        return CFEqual(element, current) && acceptsPaste(element)
     }
+    static func acceptsPaste(_ element: AXUIElement) -> Bool {
+        var role: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
+              let role = role as? String, [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role) else { return false }
+        var writable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &writable) == .success, writable.boolValue else { return false }
+        var enabled: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enabled) == .success, let enabled = enabled as? Bool, !enabled { return false }
+        return true
+    }
+    deinit { timer?.invalidate() }
     static func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)

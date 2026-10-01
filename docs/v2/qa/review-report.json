@@ -1,0 +1,48 @@
+{
+  "verified_at_utc": "2026-10-01T13:01:20.604249+00:00",
+  "release": "v2.0.0-preview.2",
+  "bundle_version": "2.0.0",
+  "bundle_build": 3,
+  "unit_integration": {
+    "tests": 102,
+    "suites": 15,
+    "passed": true,
+    "new_review_regressions": 20
+  },
+  "native_file_panel_qa": {
+    "checks": 80,
+    "passed": true,
+    "focus_check_repeated_in_isolation": true
+  },
+  "unified_ui_qa": {
+    "layouts_and_snapshots": 18,
+    "passed": true,
+    "outside_events": "Disabled for private QA controllers; enabled in production",
+    "checks": [
+      "one clipboard window",
+      "stable selection after new copy",
+      "copy confirmation generation",
+      "disable and empty history",
+      "hidden prompt Return guard",
+      "cross-process exclusive shortcut and retry"
+    ]
+  },
+  "installed_app": {
+    "signature_verified": true,
+    "binary_matches_release": true,
+    "timers_and_deadlines_preserved": true,
+    "pause_preserved": true
+  },
+  "package": {
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "signing": "ad-hoc hardened runtime",
+    "sha256": "7b862783718e1697d9605fcc6d2fc60acd69e48c9057ace227ec9c99cfa0681b",
+    "contains_user_state": false
+  },
+  "media_pipeline": "Unchanged; five synthetic decode cases from preview 1 are retained",
+  "physical_acceptance": "Still pending; see TESTING.md",
+  "hosted_ci": "Account-level startup block; local checks only"
+}

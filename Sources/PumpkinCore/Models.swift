@@ -10,10 +10,12 @@ public struct TrackedItem: Codable, Identifiable, Hashable, Sendable {
     /// trashed while it is still directly inside this folder.
     public var folderPath: String
     public var fileID: UInt64
+    public var volumeID: UInt64?
     public var bookmark: Data?
     public var size: Int64
     public var isFolder: Bool
     public var source: String?
+    public var kind: String?
     public var startedAt: Date
     public var expiresAt: Date
     public var lastError: String?
@@ -30,17 +32,21 @@ public struct TrackedItem: Codable, Identifiable, Hashable, Sendable {
         source: String?,
         startedAt: Date,
         expiresAt: Date,
-        lastError: String? = nil
+        lastError: String? = nil,
+        volumeID: UInt64? = nil,
+        kind: String? = nil
     ) {
         self.id = id
         self.name = name
         self.path = path
         self.folderPath = folderPath
         self.fileID = fileID
+        self.volumeID = volumeID
         self.bookmark = bookmark
         self.size = size
         self.isFolder = isFolder
         self.source = source
+        self.kind = kind
         self.startedAt = startedAt
         self.expiresAt = expiresAt
         self.lastError = lastError
@@ -71,6 +77,9 @@ public struct TrashRecord: Codable, Identifiable, Hashable, Sendable {
     public var isFolder: Bool
     public var size: Int64
     public var restoredAt: Date?
+    public var kind: String?
+    public var fileID: UInt64?
+    public var volumeID: UInt64?
 
     public init(
         id: UUID = UUID(),
@@ -80,7 +89,10 @@ public struct TrashRecord: Codable, Identifiable, Hashable, Sendable {
         trashedAt: Date,
         isFolder: Bool,
         size: Int64,
-        restoredAt: Date? = nil
+        restoredAt: Date? = nil,
+        kind: String? = nil,
+        fileID: UInt64? = nil,
+        volumeID: UInt64? = nil
     ) {
         self.id = id
         self.name = name
@@ -90,12 +102,15 @@ public struct TrashRecord: Codable, Identifiable, Hashable, Sendable {
         self.isFolder = isFolder
         self.size = size
         self.restoredAt = restoredAt
+        self.kind = kind; self.fileID = fileID; self.volumeID = volumeID
     }
 
     /// Whether the item is still sitting in the Trash where we left it.
     public var canPutBack: Bool {
         guard restoredAt == nil, let trashedPath else { return false }
-        return FileManager.default.fileExists(atPath: trashedPath)
+        var info = stat()
+        guard lstat(trashedPath, &info) == 0 else { return false }
+        return (fileID.map { $0 == UInt64(info.st_ino) } ?? true) && (volumeID.map { $0 == UInt64(info.st_dev) } ?? true)
     }
 }
 

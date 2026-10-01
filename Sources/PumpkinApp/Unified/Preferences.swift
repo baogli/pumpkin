@@ -17,10 +17,17 @@ struct GlobalShortcut: Codable, Equatable, Hashable {
 @MainActor @Observable
 final class UnifiedPreferences {
     @ObservationIgnored let defaults: UserDefaults
+    @ObservationIgnored var onAppearanceChanged: () -> Void = {}
     var clipboardEnabled: Bool { didSet { defaults.set(clipboardEnabled, forKey: "v2.clipboardEnabled") } }
-    var visibleClips: Int { didSet { defaults.set(max(3, min(9, visibleClips)), forKey: "v2.visibleClips") } }
+    var visibleClips: Int {
+        didSet {
+            let clamped = max(3, min(9, visibleClips))
+            if visibleClips != clamped { visibleClips = clamped; return }
+            defaults.set(visibleClips, forKey: "v2.visibleClips")
+        }
+    }
     var recordingEnabled: Bool { didSet { defaults.set(recordingEnabled, forKey: "v2.recordingEnabled") } }
-    var theme: String { didSet { defaults.set(theme, forKey: "v2.theme") } }
+    var theme: String { didSet { defaults.set(theme, forKey: "v2.theme"); onAppearanceChanged() } }
     var language: String { didSet { defaults.set(language, forKey: "v2.language") } }
     var completedIntro: Bool { didSet { defaults.set(completedIntro, forKey: "v2.completedIntro") } }
     var clipboardShortcut: GlobalShortcut { didSet { save(clipboardShortcut, "v2.clipboardShortcut") } }

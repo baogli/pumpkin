@@ -13,11 +13,13 @@ final class Workbench {
     var intro: Bool
     var windowVisible = false { didSet { synchronizePanels() } }
     var clipboardVisible = false { didSet { synchronizePanels() } }
-    var notice: String?
+    var notice: String? { didSet { noticeIsError = false; noticeAction = nil } }
+    var noticeIsError = false
     var noticeAction: WorkspaceSection?
     var shortcutError: String?
     var capturingShortcut: UInt32?
     @ObservationIgnored var showWindow: () -> Void = {}
+    @ObservationIgnored var hideWindow: () -> Void = {}
     @ObservationIgnored var showQuickClipboard: () -> Void = {}
     @ObservationIgnored var hideQuickClipboard: () -> Void = {}
     @ObservationIgnored var updateShortcuts: () -> Void = {}
@@ -82,7 +84,10 @@ final class Workbench {
         if connectFolders { files.retryWatching() }
         synchronizePanels(); updateShortcuts()
     }
-    func setClipboardEnabled(_ enabled: Bool) { prefs.clipboardEnabled = enabled; clipboard.setEnabled(enabled); updateShortcuts() }
+    func setClipboardEnabled(_ enabled: Bool) {
+        if !enabled { hideQuickClipboard() }
+        prefs.clipboardEnabled = enabled; clipboard.setEnabled(enabled); updateShortcuts()
+    }
     func importClipboardSettings() {
         guard let previous = UserDefaults.standard.persistentDomain(forName: "dev.vee.Vee") else { notice = text("Сохранённые настройки Vee не найдены", "No Vee preferences found"); return }
         if let count = previous["visibleItemCount"] as? Int { prefs.visibleClips = max(3, min(9, count)) }
@@ -95,7 +100,7 @@ final class Workbench {
         let alert = NSAlert(); alert.messageText = text("Очистить историю?", "Clear clipboard history?")
         alert.informativeText = text("Текст в системном буфере останется. История Pumpkin будет удалена из памяти.", "The system clipboard stays unchanged. Pumpkin's in-memory history will be cleared.")
         alert.addButton(withTitle: text("Очистить", "Clear")); alert.addButton(withTitle: text("Отмена", "Cancel"))
-        if alert.runModal() == .alertFirstButtonReturn { clipboard.clear() }
+        if alert.runModal() == .alertFirstButtonReturn { hideQuickClipboard(); clipboard.clear() }
     }
     func requestRecording() {
         guard prefs.recordingEnabled else { open(.settings); return }

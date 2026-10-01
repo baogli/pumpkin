@@ -37,7 +37,7 @@ public struct RecordingEntry: Codable, Equatable, Identifiable, Sendable {
     }
     public func protects(_ candidate: URL) -> Bool {
         let path = candidate.standardizedFileURL.path
-        if status != .finished && (path == url.standardizedFileURL.path || path == partialURL.standardizedFileURL.path) { return true }
+        if status == .pending && (path == url.standardizedFileURL.path || path == partialURL.standardizedFileURL.path) { return true }
         return matches(candidate)
     }
 }

@@ -34,9 +34,9 @@ scripts/package-release.sh
 
 | Проверка | Результат / границы |
 | --- | --- |
-| Unit/integration | 82 tests / 14 suites passed. Включают прежнюю файловую логику, clipboard ownership, все protected types, pause/disable, schema backup, pending persistence, identity/rename/replacement, собственные MP4, screenshot metadata, popup geometry и запись shortcut |
+| Unit/integration | 102 tests / 15 suites passed. Включают 20 новых регрессионных проверок ревью: доставка/отмена буфера, импорт одного файла из пакета, rename/restart, смена папки, pause clock, независимый screenshot watcher, Trash/volume identity, происхождение файлов и конфликты клавиш |
 | Файлы / AppKit | 80 checks passed в нативном QA-bundle: реальные watcher/Корзина/возврат, rename/move, пауза, очередь и перезапуск, геометрия, hit testing, клавиатура и сохранение фокуса внешнего приложения |
-| Объединённый UI | 18 layouts/snapshots; меню, видимый запрос и стрелки/Return, запрет подтверждения скрытого запроса из меню, quick clipboard copy-only, Return/Esc и приоритет панелей |
+| Объединённый UI | 18 layouts/snapshots; меню/запросы/Return/Esc, одно окно буфера, стабильный выбор при новой копии, повторные подтверждения, отключение и пустой буфер. Отдельный процесс проверяет exclusive hotkey и повторную регистрацию после выхода владельца |
 | Стерео MP4 | 3 cases: H.264/30/48 kHz, H.264/60/44.1 kHz, HEVC/30/96 kHz → AAC stereo 48 kHz. Полный decode; независимые синтетические 1000/1500 Hz, длительность около 2.5 s, финальный статичный кадр, fast-start, отсутствие drop |
 | Video-only MP4 | H.264 и HEVC, по 61 декодированному кадру, около 2.5 s, ровно один video track и ноль audio tracks |
 | Сборка | Release bundle arm64 + x86_64; hardened runtime + audio-input entitlement, ad-hoc signature. Apple notarization не выполнялась |
@@ -46,6 +46,8 @@ AppKit-harness запускается через `scripts/qa-app.sh` как по
 Установленная сборка открыта обычным запуском. В её реальном интерфейсе подтверждены онбординг, независимые отсутствующие TCC-доступы и сохранение прежних таймеров при обновлении. Попытка отдельной интерактивной QA-проверки через компьютерный инструмент завершилась таймаутом инструмента и не засчитывается. Screen Recording/Microphone/Accessibility не выдавались обходным способом.
 
 Скриншоты QA содержат вымышленные данные. Canvas — источник дизайна; screenshots — реализация, не запись настоящего USB-интерфейса или внешнего дисплея.
+
+Preview 2 / build 3: [отчёт ревью и исправлений](REVIEW_FIXES.md). Capture/writer pipeline не менялся; результаты пяти синтетических MP4 выше получены при проверке preview 1. Регрессии файлов/буфера/окон проверены повторно для исправленной версии.
 
 ## Оставшаяся аппаратная приёмка
 

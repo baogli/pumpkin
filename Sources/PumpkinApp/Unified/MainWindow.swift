@@ -13,13 +13,20 @@ final class WorkbenchWindow: NSWindowController, NSWindowDelegate {
         window.backgroundColor = .clear; window.isOpaque = false; window.appearance = workbench.prefs.appearance
         window.contentView = NSHostingView(rootView: WorkbenchRoot().environment(workbench))
         super.init(window: window); window.delegate = self; window.center()
+        workbench.hideWindow = { [weak self] in self?.hide() }
+        workbench.prefs.onAppearanceChanged = { [weak window, weak workbench] in window?.appearance = workbench?.prefs.appearance }
     }
     required init?(coder: NSCoder) { fatalError() }
-    func present() { window?.appearance = workbench.prefs.appearance; workbench.windowVisible = true; NSApp.activate(); window?.makeKeyAndOrderFront(nil) }
+    func present() {
+        workbench.windowVisible = true; workbench.hideQuickClipboard(); workbench.files.isListOpen = false
+        window?.appearance = workbench.prefs.appearance; NSApp.activate(); window?.makeKeyAndOrderFront(nil)
+    }
+    func hide() { window?.orderOut(nil); workbench.windowVisible = false }
     func windowWillClose(_ notification: Notification) { workbench.windowVisible = false }
     func windowDidMiniaturize(_ notification: Notification) { workbench.windowVisible = false }
-    func windowDidDeminiaturize(_ notification: Notification) { workbench.windowVisible = true }
-    func windowDidBecomeKey(_ notification: Notification) { workbench.windowVisible = true; workbench.recorder.refreshPermissions() }
+    func windowDidDeminiaturize(_ notification: Notification) { synchronizeVisibility() }
+    func windowDidBecomeKey(_ notification: Notification) { synchronizeVisibility(); workbench.recorder.refreshPermissions() }
+    private func synchronizeVisibility() { workbench.windowVisible = window.map { $0.isVisible && !$0.isMiniaturized } ?? false }
 }
 
 struct WorkbenchRoot: View {
@@ -34,7 +41,7 @@ struct WorkbenchRoot: View {
                     VStack(spacing: 14) {
                         if workbench.recorder.busy && workbench.section != .recording { recordingBanner }
                         if let notice = workbench.notice {
-                            HStack { Label(notice, systemImage: "checkmark.circle"); Spacer(); if let action = workbench.noticeAction { Button(workbench.text("Открыть", "Open")) { workbench.section = action; workbench.notice = nil } }; Button { workbench.notice = nil; workbench.noticeAction = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.callout).padding(10).background(GlassPalette.sage.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                            HStack { Label(notice, systemImage: workbench.noticeIsError ? "exclamationmark.triangle" : "checkmark.circle"); Spacer(); if let action = workbench.noticeAction { Button(workbench.text("Открыть", "Open")) { workbench.section = action; workbench.notice = nil } }; Button { workbench.notice = nil; workbench.noticeAction = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.callout).padding(10).background((workbench.noticeIsError ? Color.red : GlassPalette.sage).opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                         }
                         Group {
                             switch workbench.section {
