@@ -218,12 +218,16 @@ final class QA {
         check(exists("Holiday.jpg") && exists("photo-3.jpg"), "nothing is trashed while paused")
         makeFile("while-paused.txt", bytes: 10)
         await pause(2.5)
-        check(model.prompts.isEmpty, "downloads aren't asked about while paused")
+        check(model.prompts.count == 1 && model.scene == nil && model.promptDeadline == nil, "paused downloads wait without showing a question or starting its timeout")
         await pause(1.0)
         let before = model.items.map(\.expiresAt)
         model.togglePause()
         let shifted = zip(before, model.items.map(\.expiresAt)).allSatisfy { $1.timeIntervalSince($0) >= 0.9 }
         check(!model.isPaused && shifted, "resuming shifts every timer by the paused time")
+        if let pending = model.prompts.first {
+            model.keep(pending.id)
+            _ = await waitUntil(3) { model.confirmation == nil }
+        }
 
         // Trash now + multiple expiring together produce one notice.
         model.expireDue(now: Date().addingTimeInterval(2 * 86_400))
@@ -349,6 +353,20 @@ final class QA {
 
     // MARK: Real panel geometry
 
+    func runInteractivePanel() async {
+        let model = makeModel(); model.startWatching()
+        let status = StatusItemController(model: model)
+        let panel = PanelController(model: model, statusItem: status.statusItem)
+        model.prefs.promptTimeout = 0
+        makeFile("Pumpkin Keyboard Acceptance.txt", bytes: 80)
+        _ = await waitUntil { !model.prompts.isEmpty && panel.window.isVisible }
+        print("INTERACTIVE PANEL READY: click a duration, use arrows, then Return. Synthetic file only.")
+        let confirmed = await waitUntil(60) { !model.items.isEmpty }
+        check(confirmed, "native keyboard interaction confirmed a timer")
+        if let item = model.items.first { print("Confirmed duration: \(Int(item.expiresAt.timeIntervalSinceNow.rounded())) seconds") }
+        NSStatusBar.system.removeStatusItem(status.statusItem)
+    }
+
     func runPanelGeometry() async {
         print("\n▸ Panel geometry")
         let model = makeModel()
@@ -465,7 +483,9 @@ final class QA {
         let point = window.convertPoint(fromScreen: screenPoint)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) {
-                NSApp.postEvent(event, atStart: false)
+                // Dispatch through AppKit immediately; its inactive-app event queue
+                // can discard synthetic events in an automated graphical session.
+                NSApp.sendEvent(event)
             }
         }
     }
@@ -473,7 +493,7 @@ final class QA {
     func press(keyCode: UInt16, in window: NSWindow) {
         for type in [NSEvent.EventType.keyDown, .keyUp] {
             if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode) {
-                NSApp.postEvent(event, atStart: false)
+                NSApp.sendEvent(event)
             }
         }
     }
@@ -790,12 +810,16 @@ final class QADelegate: NSObject, NSApplicationDelegate {
         let out = URL(fileURLWithPath: path, isDirectory: true)
         let qa = QA(out: out)
         let snapshotsOnly = args.contains("--snapshots-only")
+        let panelsOnly = args.contains("--panels-only")
         Task { @MainActor in
+            if args.contains("--interactive-panel") || Bundle.main.bundleIdentifier == "app.pumpkin.QANative" {
+                await qa.runInteractivePanel(); qa.finish(); exit(qa.failures.isEmpty ? 0 : 1)
+            }
             if !snapshotsOnly {
-                await qa.runEndToEnd()
+                if !panelsOnly { await qa.runEndToEnd() }
                 await qa.runPanelGeometry()
             }
-            await qa.runSnapshots()
+            if !panelsOnly { await qa.runSnapshots() }
             qa.finish()
             exit(qa.failures.isEmpty ? 0 : 1)
         }

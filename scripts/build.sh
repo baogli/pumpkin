@@ -27,6 +27,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/Pumpkin" "$APP/Contents/MacOS/Pumpkin"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
 printf "APPL????" > "$APP/Contents/PkgInfo"
 
 # Layered Liquid Glass icon for macOS 26 and later.
@@ -42,7 +43,7 @@ fi
 rm -rf "$ASSETS"
 
 echo "› Signing ($([ "$IDENTITY" = "-" ] && echo ad-hoc || echo "$IDENTITY"))…"
-codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$APP"
+codesign --force --options runtime --entitlements Resources/Pumpkin.entitlements --timestamp=none --sign "$IDENTITY" "$APP"
 codesign --verify --strict "$APP"
 
 echo "✓ $APP"

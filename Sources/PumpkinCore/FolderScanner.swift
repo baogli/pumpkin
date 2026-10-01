@@ -1,7 +1,7 @@
 import Foundation
 
 /// A shallow, cheap description of one entry in the watched folder.
-public struct FileSnapshot: Hashable, Sendable {
+public struct FileSnapshot: Hashable, Codable, Sendable {
     public var url: URL
     /// The inode. Stable across renames within the same volume, which is how
     /// a file is recognised after a browser renames `x.crdownload` to `x`.

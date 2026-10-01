@@ -1,0 +1,42 @@
+{
+  "emptyRecordingRejected" : true,
+  "tests" : [
+    {
+      "audioFramesDecoded" : 96000,
+      "bytes" : 135256,
+      "duration" : 2.5,
+      "fastStart" : true,
+      "file" : "h264-30-5E0EE2.mp4",
+      "left1000HzAmplitude" : 0.40006112712374514,
+      "left1500HzLeak" : 0.00013112331007575739,
+      "right1000HzLeak" : 6.8890063067804532e-05,
+      "right1500HzAmplitude" : 0.20000954346319094,
+      "videoFramesDecoded" : 61
+    },
+    {
+      "audioFramesDecoded" : 96000,
+      "bytes" : 220413,
+      "duration" : 2.5,
+      "fastStart" : true,
+      "file" : "h264-60-294F18.mp4",
+      "left1000HzAmplitude" : 0.40006108834435533,
+      "left1500HzLeak" : 0.00013127849329047775,
+      "right1000HzLeak" : 6.8850024865824006e-05,
+      "right1500HzAmplitude" : 0.20001178624786906,
+      "videoFramesDecoded" : 121
+    },
+    {
+      "audioFramesDecoded" : 96000,
+      "bytes" : 220507,
+      "duration" : 2.5,
+      "fastStart" : true,
+      "file" : "hevc-30-71471B.mp4",
+      "left1000HzAmplitude" : 0.40006112979171482,
+      "left1500HzLeak" : 0.00013135406858813189,
+      "right1000HzLeak" : 6.8884126864907441e-05,
+      "right1500HzAmplitude" : 0.20000268927977685,
+      "videoFramesDecoded" : 61
+    }
+  ],
+  "timestamp" : "2026-10-01T09:02:13Z"
+}

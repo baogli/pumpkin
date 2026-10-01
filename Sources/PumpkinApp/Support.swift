@@ -137,6 +137,10 @@ final class Preferences {
         didSet { defaults.set(watchScreenshots, forKey: Key.watchScreenshots) }
     }
 
+    var watchDownloads: Bool {
+        didSet { defaults.set(watchDownloads, forKey: "watchDownloads") }
+    }
+
     var customFolderPath: String? {
         didSet { defaults.set(customFolderPath, forKey: Key.customFolderPath) }
     }
@@ -164,6 +168,7 @@ final class Preferences {
             Key.playSound: true,
             Key.askAboutFolders: true,
             Key.watchScreenshots: true,
+            "watchDownloads": true,
             Key.hasCompletedOnboarding: false,
         ])
         defaultDuration = defaults.double(forKey: Key.defaultDuration)
@@ -173,6 +178,7 @@ final class Preferences {
         playSound = defaults.bool(forKey: Key.playSound)
         askAboutFolders = defaults.bool(forKey: Key.askAboutFolders)
         watchScreenshots = defaults.bool(forKey: Key.watchScreenshots)
+        watchDownloads = defaults.bool(forKey: "watchDownloads")
         customFolderPath = defaults.string(forKey: Key.customFolderPath)
         hasCompletedOnboarding = defaults.bool(forKey: Key.hasCompletedOnboarding)
     }

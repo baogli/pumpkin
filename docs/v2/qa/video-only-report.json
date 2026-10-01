@@ -1,0 +1,16 @@
+{
+  "videoOnly" : [
+    {
+      "audioTracks" : 0,
+      "duration" : 2.5,
+      "file" : "video-only-h264-3C27FA.mp4",
+      "videoFramesDecoded" : 61
+    },
+    {
+      "audioTracks" : 0,
+      "duration" : 2.5,
+      "file" : "video-only-hevc-F9A25C.mp4",
+      "videoFramesDecoded" : 61
+    }
+  ]
+}

@@ -100,6 +100,9 @@ public struct TrashRecord: Codable, Identifiable, Hashable, Sendable {
 }
 
 public struct PersistedState: Codable, Equatable {
+    public var schemaVersion: Int = 2
+    public var recordings: [RecordingEntry]
+    public var pendingGroups: [PendingFileGroup]
     public var items: [TrackedItem]
     public var history: [TrashRecord]
     /// Last time the folder was looked at; entries added after this are new.
@@ -107,15 +110,17 @@ public struct PersistedState: Codable, Equatable {
     /// Set while timers are frozen.
     public var pausedAt: Date?
 
-    public init(items: [TrackedItem] = [], history: [TrashRecord] = [], lastSeenAt: Date? = nil, pausedAt: Date? = nil) {
+    public init(items: [TrackedItem] = [], history: [TrashRecord] = [], lastSeenAt: Date? = nil, pausedAt: Date? = nil, recordings: [RecordingEntry] = [], pendingGroups: [PendingFileGroup] = []) {
         self.items = items
         self.history = history
         self.lastSeenAt = lastSeenAt
         self.pausedAt = pausedAt
+        self.recordings = recordings
+        self.pendingGroups = pendingGroups
     }
 
     enum CodingKeys: String, CodingKey {
-        case items, history, lastSeenAt, pausedAt
+        case schemaVersion, items, history, lastSeenAt, pausedAt, recordings, pendingGroups
     }
 
     public init(from decoder: Decoder) throws {
@@ -124,5 +129,7 @@ public struct PersistedState: Codable, Equatable {
         history = try container.decodeIfPresent([TrashRecord].self, forKey: .history) ?? []
         lastSeenAt = try container.decodeIfPresent(Date.self, forKey: .lastSeenAt)
         pausedAt = try container.decodeIfPresent(Date.self, forKey: .pausedAt)
+        recordings = try container.decodeIfPresent([RecordingEntry].self, forKey: .recordings) ?? []
+        pendingGroups = try container.decodeIfPresent([PendingFileGroup].self, forKey: .pendingGroups) ?? []
     }
 }

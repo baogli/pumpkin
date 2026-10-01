@@ -25,6 +25,7 @@ public enum DownloadFilter {
 
     /// True for hidden files, system clutter and in-progress downloads.
     public static func isIgnorable(name: String) -> Bool {
+        if name.lowercased().hasSuffix(".partial.mp4") { return true }
         if name.isEmpty || name.hasPrefix(".") || name.hasPrefix("~$") {
             return true
         }

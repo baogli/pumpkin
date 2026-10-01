@@ -25,6 +25,6 @@ import Testing
         #expect(!defaults.bool(forKey: "watchScreenshots"))
         defaults.removeObject(forKey: "watchScreenshots")
         Preferences.migrateLegacySettings(defaults: defaults, domain: domain, previous: ["watchScreenshots": false])
-        #expect(defaults.object(forKey: "watchScreenshots") == nil)
+        #expect(defaults.persistentDomain(forName: domain)?["watchScreenshots"] == nil)
     }
 }
