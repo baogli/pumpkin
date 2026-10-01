@@ -32,7 +32,12 @@ public final class StateStore {
     public func load() -> PersistedState {
         guard let data = try? Data(contentsOf: url) else { return PersistedState() }
         do {
-            return try JSONDecoder().decode(PersistedState.self, from: data)
+            let state = try JSONDecoder().decode(PersistedState.self, from: data)
+            if (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["schemaVersion"] == nil {
+                let backup = url.deletingLastPathComponent().appendingPathComponent("state.v1.backup.json")
+                if !FileManager.default.fileExists(atPath: backup.path) { try? data.write(to: backup, options: .atomic) }
+            }
+            return state
         } catch {
             // Set the unreadable file aside rather than overwriting it.
             let stamp = Int(Date().timeIntervalSince1970)

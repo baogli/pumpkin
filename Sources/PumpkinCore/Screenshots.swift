@@ -19,6 +19,13 @@ public enum Screenshots {
         return looksLikeScreenshot(name: url.lastPathComponent)
     }
 
+    /// The v2 watcher requires OS metadata; a lookalike filename is not consent.
+    public static func isTaggedScreenCapture(_ url: URL) -> Bool {
+        guard let data = DownloadSource.extendedAttribute(captureAttribute, of: url),
+              let value = try? PropertyListSerialization.propertyList(from: data, format: nil) else { return false }
+        return (value as? Bool) ?? (value as? NSNumber)?.boolValue ?? false
+    }
+
     public static func looksLikeScreenshot(name: String) -> Bool {
         namePrefixes.contains { name.hasPrefix($0) }
     }

@@ -1,20 +1,22 @@
 import Foundation
 
 /// A shallow, cheap description of one entry in the watched folder.
-public struct FileSnapshot: Hashable, Sendable {
+public struct FileSnapshot: Hashable, Codable, Sendable {
     public var url: URL
     /// The inode. Stable across renames within the same volume, which is how
     /// a file is recognised after a browser renames `x.crdownload` to `x`.
     public var fileID: UInt64
+    public var volumeID: UInt64?
     public var isDirectory: Bool
     public var isPackage: Bool
     public var size: Int64
     public var modifiedAt: Date?
     public var addedAt: Date?
 
-    public init(url: URL, fileID: UInt64, isDirectory: Bool, isPackage: Bool, size: Int64, modifiedAt: Date?, addedAt: Date?) {
+    public init(url: URL, fileID: UInt64, isDirectory: Bool, isPackage: Bool, size: Int64, modifiedAt: Date?, addedAt: Date?, volumeID: UInt64? = nil) {
         self.url = url
         self.fileID = fileID
+        self.volumeID = volumeID
         self.isDirectory = isDirectory
         self.isPackage = isPackage
         self.size = size
@@ -23,6 +25,11 @@ public struct FileSnapshot: Hashable, Sendable {
     }
 
     public var name: String { url.lastPathComponent }
+
+    public func matches(_ candidate: URL) -> Bool {
+        var info = stat()
+        return lstat(candidate.path, &info) == 0 && UInt64(info.st_ino) == fileID && (volumeID == nil || UInt64(info.st_dev) == volumeID)
+    }
 
     /// A plain folder, as opposed to a file or a package such as an `.app` bundle.
     public var isFolder: Bool { isDirectory && !isPackage }
@@ -53,7 +60,8 @@ public enum FolderScanner {
             isPackage: values?.isPackage ?? false,
             size: isDirectory ? 0 : Int64(info.st_size),
             modifiedAt: Date(timespec: info.st_mtimespec),
-            addedAt: values?.addedToDirectoryDate ?? values?.creationDate
+            addedAt: values?.addedToDirectoryDate ?? values?.creationDate,
+            volumeID: UInt64(info.st_dev)
         )
     }
 

@@ -65,11 +65,13 @@ enum StatusIcon {
 final class StatusItemController: NSObject {
     let statusItem: NSStatusItem
     private let model: AppModel
+    private let workbench: Workbench?
     private var tickTimer: Timer?
     private var tickInterval: TimeInterval = 0
 
-    init(model: AppModel) {
+    init(model: AppModel, workbench: Workbench? = nil) {
         self.model = model
+        self.workbench = workbench
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -89,9 +91,10 @@ final class StatusItemController: NSObject {
 
     @objc private func clicked(_ sender: NSStatusBarButton) {
         let event = NSApp.currentEvent
-        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+        if workbench == nil && (event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true) {
             showMenu()
         } else {
+            workbench?.hideQuickClipboard()
             model.isListOpen.toggle()
         }
     }
@@ -116,6 +119,15 @@ final class StatusItemController: NSObject {
     /// Redraws the icon and title. Reads the model, so it re-runs on every relevant change.
     private func refresh() {
         guard let button = statusItem.button else { return }
+        if let workbench, workbench.recorder.busy {
+            button.image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Recording")
+            button.contentTintColor = .systemRed
+            button.title = workbench.recorder.phase == .recording ? workbench.recorder.elapsed : workbench.recorder.phase == .finalizing ? "…" : "◉"
+            button.toolTip = workbench.text("Pumpkin — запись / сохранение", "Pumpkin — recording / saving")
+            scheduleTick(for: nil)
+            return
+        }
+        button.contentTintColor = nil
         let soonest = model.soonest
         let reference = model.clock(Date())
         let asking = !model.prompts.isEmpty

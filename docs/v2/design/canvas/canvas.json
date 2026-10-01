@@ -1,0 +1,269 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-01T08:18:01Z"
+  },
+  "title": "Pumpkin 2.0 · Liquid Glass",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1040,
+      "h": 800,
+      "title": "P03 / Запись / Готово",
+      "is_interactive": true
+    },
+    "P04-countdown.dc.html": {
+      "x": 1120,
+      "y": 0,
+      "w": 1040,
+      "h": 800,
+      "title": "P04 / Запись / Отсчёт",
+      "is_interactive": true
+    },
+    "P05-recording.dc.html": {
+      "x": 2240,
+      "y": 0,
+      "w": 1040,
+      "h": 800,
+      "title": "P05 / Запись / Идёт запись",
+      "is_interactive": true
+    },
+    "P05-finalizing.dc.html": {
+      "x": 3360,
+      "y": 0,
+      "w": 1040,
+      "h": 800,
+      "title": "P05 / Запись / Сохраняем MP4"
+    },
+    "P06-result.dc.html": {
+      "x": 4480,
+      "y": 0,
+      "w": 1040,
+      "h": 800,
+      "title": "P06 / Запись / Результат и записи",
+      "is_interactive": true
+    },
+    "P03-record-missing.dc.html": {
+      "x": 0,
+      "y": 1200,
+      "w": 1040,
+      "h": 800,
+      "title": "P03 / Запись / Устройство отсутствует"
+    },
+    "P03-record-dark.dc.html": {
+      "x": 1120,
+      "y": 1200,
+      "w": 1040,
+      "h": 800,
+      "title": "P03 / Запись / Проверка звука · тёмная",
+      "is_interactive": true
+    },
+    "P11-menu.dc.html": {
+      "x": 2240,
+      "y": 1200,
+      "w": 720,
+      "h": 600,
+      "title": "P11 / Меню Pumpkin / Обычное"
+    },
+    "P11-menu-recording.dc.html": {
+      "x": 3040,
+      "y": 1200,
+      "w": 720,
+      "h": 600,
+      "title": "P11 / Меню Pumpkin / Идёт запись"
+    },
+    "P07-clipboard.dc.html": {
+      "x": 0,
+      "y": 2400,
+      "w": 1040,
+      "h": 800,
+      "title": "P07 / Буфер / История",
+      "is_interactive": true
+    },
+    "P07-clipboard-empty.dc.html": {
+      "x": 1120,
+      "y": 2400,
+      "w": 1040,
+      "h": 800,
+      "title": "P07 / Буфер / Пусто"
+    },
+    "P07-clipboard-dark.dc.html": {
+      "x": 2240,
+      "y": 2400,
+      "w": 1040,
+      "h": 800,
+      "title": "P07 / Буфер / История · тёмная",
+      "is_interactive": true
+    },
+    "P08-quick-paste.dc.html": {
+      "x": 3360,
+      "y": 2400,
+      "w": 1360,
+      "h": 960,
+      "title": "P08 / Буфер / Быстрый popup"
+    },
+    "P09-cleanup.dc.html": {
+      "x": 0,
+      "y": 3760,
+      "w": 1040,
+      "h": 800,
+      "title": "P09 / Очистка / Список",
+      "is_interactive": true
+    },
+    "P09-cleanup-dark.dc.html": {
+      "x": 1120,
+      "y": 3760,
+      "w": 1040,
+      "h": 800,
+      "title": "P09 / Очистка / Пауза и ошибка · тёмная",
+      "is_interactive": true
+    },
+    "P10-keep-for.dc.html": {
+      "x": 2240,
+      "y": 3760,
+      "w": 1240,
+      "h": 920,
+      "title": "P10 / Очистка / Запрос срока"
+    },
+    "P01-welcome.dc.html": {
+      "x": 0,
+      "y": 5080,
+      "w": 880,
+      "h": 780,
+      "title": "P01 / Знакомство и выбор функций"
+    },
+    "P02-access.dc.html": {
+      "x": 960,
+      "y": 5080,
+      "w": 880,
+      "h": 820,
+      "title": "P02 / Доступы"
+    },
+    "P12-settings.dc.html": {
+      "x": 1920,
+      "y": 5080,
+      "w": 920,
+      "h": 860,
+      "title": "P12 / Настройки"
+    },
+    "P12-settings-dark.dc.html": {
+      "x": 2920,
+      "y": 5080,
+      "w": 920,
+      "h": 860,
+      "title": "P12 / Настройки · тёмная"
+    },
+    "P13-notices.dc.html": {
+      "x": 0,
+      "y": 6340,
+      "w": 1480,
+      "h": 800,
+      "title": "P13 / Сообщения и подтверждения"
+    },
+    "P13-notices-dark.dc.html": {
+      "x": 1560,
+      "y": 6340,
+      "w": 1480,
+      "h": 800,
+      "title": "P13 / Сообщения и подтверждения · тёмная"
+    },
+    "Foundations.dc.html": {
+      "x": 0,
+      "y": 7540,
+      "w": 1480,
+      "h": 2210,
+      "title": "Foundations / Цвет · стекло · типографика"
+    },
+    "Components.dc.html": {
+      "x": 1560,
+      "y": 7540,
+      "w": 1480,
+      "h": 2450,
+      "title": "Components / Варианты и состояния"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "P04-countdown.dc.html",
+    "P05-recording.dc.html",
+    "P05-finalizing.dc.html",
+    "P06-result.dc.html",
+    "P03-record-missing.dc.html",
+    "P03-record-dark.dc.html",
+    "P11-menu.dc.html",
+    "P11-menu-recording.dc.html",
+    "P07-clipboard.dc.html",
+    "P07-clipboard-empty.dc.html",
+    "P07-clipboard-dark.dc.html",
+    "P08-quick-paste.dc.html",
+    "P09-cleanup.dc.html",
+    "P09-cleanup-dark.dc.html",
+    "P10-keep-for.dc.html",
+    "P01-welcome.dc.html",
+    "P02-access.dc.html",
+    "P12-settings.dc.html",
+    "P12-settings-dark.dc.html",
+    "P13-notices.dc.html",
+    "P13-notices-dark.dc.html",
+    "Foundations.dc.html",
+    "Components.dc.html"
+  ],
+  "notes": {
+    "row-rec1": {
+      "x": 0,
+      "y": -280,
+      "text": "Запись: настроить → отсчёт → запись → результат",
+      "kind": "title1",
+      "maxW": 5520
+    },
+    "row-rec2": {
+      "x": 0,
+      "y": 920,
+      "text": "Запись: состояния, тёмная тема и меню Pumpkin",
+      "kind": "title1",
+      "maxW": 3760
+    },
+    "row-clip": {
+      "x": 0,
+      "y": 2120,
+      "text": "Буфер: история, быстрая вставка у курсора, пусто",
+      "kind": "title1",
+      "maxW": 4720
+    },
+    "row-clean": {
+      "x": 0,
+      "y": 3480,
+      "text": "Очистка: список, пауза и ошибка, запрос срока",
+      "kind": "title1",
+      "maxW": 3480
+    },
+    "row-onb": {
+      "x": 0,
+      "y": 4800,
+      "text": "Первый запуск, доступы и настройки",
+      "kind": "title1",
+      "maxW": 3840
+    },
+    "row-msg": {
+      "x": 0,
+      "y": 6060,
+      "text": "Сообщения и подтверждения",
+      "kind": "title1",
+      "maxW": 3040
+    },
+    "row-sys": {
+      "x": 0,
+      "y": 7260,
+      "text": "Дизайн-система: цвет, стекло, типографика, компоненты",
+      "kind": "title1",
+      "maxW": 3040
+    }
+  },
+  "designSystems": []
+}

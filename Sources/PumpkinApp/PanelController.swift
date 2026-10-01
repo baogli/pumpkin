@@ -14,7 +14,7 @@ final class MenuPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .leftMouseDown { makeKey() }
+        if event.type == .leftMouseDown { makeKeyAndOrderFront(nil) }
         super.sendEvent(event)
     }
 }
@@ -66,6 +66,7 @@ final class PanelController: NSObject {
     private static let gap: CGFloat = 6
 
     private let model: AppModel
+    private let workbench: Workbench?
     private let statusItem: NSStatusItem
     private let presentation = PanelPresentation()
     private let panel: MenuPanel
@@ -75,15 +76,23 @@ final class PanelController: NSObject {
     private var outsideClickMonitor: Any?
     private var localClickMonitor: Any?
     private var keyMonitor: Any?
+    private var notificationTokens: [NSObjectProtocol] = []
+    private let observeOutsideEvents: Bool
 
     /// For the QA tool.
     var window: NSPanel { panel }
     var contentHost: PanelHostingView { hostingView }
 
-    init(model: AppModel, statusItem: NSStatusItem) {
+    init(model: AppModel, statusItem: NSStatusItem, workbench: Workbench? = nil, observeOutsideEvents: Bool = true) {
         self.model = model
+        self.workbench = workbench
         self.statusItem = statusItem
-        hostingView = PanelHostingView(rootView: AnyView(PanelRootView(presentation: presentation).environment(model)))
+        self.observeOutsideEvents = observeOutsideEvents
+        if let workbench {
+            hostingView = PanelHostingView(rootView: AnyView(UnifiedTransientPanel(presentation: presentation).environment(workbench)))
+        } else {
+            hostingView = PanelHostingView(rootView: AnyView(PanelRootView(presentation: presentation).environment(model)))
+        }
         hostingView.sizingOptions = [.intrinsicContentSize]
         panel = MenuPanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 120),
@@ -103,12 +112,14 @@ final class PanelController: NSObject {
             self?.model.isPointerInside = inside
         }
 
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.model.isListOpen = false }
+        if observeOutsideEvents {
+            notificationTokens.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.model.isListOpen = false }
+            })
         }
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+        notificationTokens.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.resizeToFit(animated: false) }
-        }
+        })
 
         observeContinuously { [weak self] in
             self?.sync()
@@ -133,6 +144,13 @@ final class PanelController: NSObject {
     }
 
     private func makeBackground(containing content: NSView) -> NSView {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            let background = NSView()
+            background.wantsLayer = true; background.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            background.layer?.cornerRadius = Self.cornerRadius
+            content.frame = background.bounds; background.addSubview(content)
+            return background
+        }
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView()
             glass.cornerRadius = Self.cornerRadius
@@ -153,6 +171,7 @@ final class PanelController: NSObject {
 
     /// Mirrors the model's scene. Re-runs whenever the scene changes.
     private func sync() {
+        if let workbench { panel.appearance = workbench.prefs.appearance }
         let scene = model.scene
         let listOpen = model.isListOpen
         statusItem.button?.highlight(listOpen)
@@ -174,6 +193,10 @@ final class PanelController: NSObject {
         isShown = true
         transitionRevision += 1
         let revision = transitionRevision
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            hostingView.layoutSubtreeIfNeeded(); panel.setFrame(targetFrame(), display: true)
+            panel.alphaValue = 1; panel.orderFrontRegardless(); return
+        }
         panel.alphaValue = 0
         panel.setFrame(targetFrame().offsetBy(dx: 0, dy: 10), display: false)
         panel.orderFrontRegardless()
@@ -209,6 +232,9 @@ final class PanelController: NSObject {
         transitionRevision += 1
         let revision = transitionRevision
         model.isPointerInside = false
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel.alphaValue = 0; panel.orderOut(nil); return
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -231,7 +257,7 @@ final class PanelController: NSObject {
         guard isShown else { return }
         let frame = targetFrame()
         guard frame != panel.frame else { return }
-        if animated {
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             transitionRevision += 1
             let revision = transitionRevision
             NSAnimationContext.runAnimationGroup { context in
@@ -280,6 +306,7 @@ final class PanelController: NSObject {
     // MARK: - Events
 
     private func updateOutsideClickMonitor(_ listOpen: Bool) {
+        guard observeOutsideEvents else { return }
         if listOpen, outsideClickMonitor == nil {
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
                 MainActor.assumeIsolated { self?.model.isListOpen = false }
@@ -315,7 +342,8 @@ final class PanelController: NSObject {
     private func handleKey(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control])
         guard modifiers.isEmpty else { return false }
-        let prompt = model.prompts.first
+        let prompt: PromptBatch?
+        if case .prompt(let batch)? = model.scene { prompt = batch } else { prompt = nil }
 
         switch event.keyCode {
         case 53: // Escape
@@ -345,6 +373,14 @@ final class PanelController: NSObject {
                 return true
             }
             return false
+        }
+    }
+    deinit {
+        panel.orderOut(nil)
+        for monitor in [outsideClickMonitor, localClickMonitor, keyMonitor].compactMap({ $0 }) { NSEvent.removeMonitor(monitor) }
+        for token in notificationTokens {
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+            NotificationCenter.default.removeObserver(token)
         }
     }
 }

@@ -3,6 +3,11 @@ import PumpkinCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var workbench: Workbench!
+    private var mainWindow: WorkbenchWindow!
+    private var clipboardPanel: QuickClipboardController!
+    private var hotkeys: GlobalHotkeys!
+    private var finishingQuit = false
     private var model: AppModel!
     private var statusController: StatusItemController!
     private var panelController: PanelController!
@@ -15,80 +20,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let prefs = Preferences()
         model = AppModel(prefs: prefs)
+        workbench = Workbench(files: model, prefs: UnifiedPreferences())
+        mainWindow = WorkbenchWindow(workbench: workbench)
+        clipboardPanel = QuickClipboardController(workbench: workbench)
+        hotkeys = GlobalHotkeys(workbench: workbench)
+        workbench.showWindow = { [weak self] in self?.mainWindow.present() }
+        workbench.showQuickClipboard = { [weak self] in self?.clipboardPanel.toggle() }
+        workbench.hideQuickClipboard = { [weak self] in self?.clipboardPanel.hide() }
+        workbench.updateShortcuts = { [weak self] in self?.hotkeys.register() }
         model.actions = AppActions(
             showSettings: { [weak self] in self?.showSettings() },
             showOnboarding: { [weak self] in self?.showOnboarding() },
             showAbout: { [weak self] in self?.showAbout() }
         )
-        statusController = StatusItemController(model: model)
-        panelController = PanelController(model: model, statusItem: statusController.statusItem)
+        statusController = StatusItemController(model: model, workbench: workbench)
+        panelController = PanelController(model: model, statusItem: statusController.statusItem, workbench: workbench)
+        hotkeys.register()
+        if prefs.hasCompletedOnboarding { model.retryWatching() }
+        if workbench.intro { mainWindow.present() }
+    }
 
-        if prefs.hasCompletedOnboarding {
-            model.retryWatching()
-        } else {
-            showOnboarding()
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !finishingQuit, let workbench else { return .terminateNow }
+        switch workbench.recorder.phase {
+        case .idle: return .terminateNow
+        case .monitoring:
+            Task { await workbench.recorder.stopMonitor(); finishingQuit = true; sender.reply(toApplicationShouldTerminate: true) }
+            return .terminateLater
+        case .preparing, .countdown:
+            workbench.recorder.cancel()
+            Task {
+                while workbench.recorder.phase != .idle { try? await Task.sleep(nanoseconds: 50_000_000) }
+                finishingQuit = true; sender.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        case .finalizing:
+            Task {
+                while workbench.recorder.phase == .finalizing { try? await Task.sleep(nanoseconds: 50_000_000) }
+                finishingQuit = true; sender.reply(toApplicationShouldTerminate: self.confirmQuitAfterFailure())
+            }
+            return .terminateLater
+        case .recording:
+            let alert = NSAlert()
+            alert.messageText = workbench.text("Идёт запись", "Recording is in progress")
+            alert.informativeText = workbench.text("Остановить и сохранить перед выходом?", "Stop and save before quitting?")
+            alert.addButton(withTitle: workbench.text("Остановить и выйти", "Stop and quit"))
+            alert.addButton(withTitle: workbench.text("Отмена", "Cancel"))
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+            Task {
+                await workbench.recorder.stop()
+                finishingQuit = true; sender.reply(toApplicationShouldTerminate: self.confirmQuitAfterFailure())
+            }
+            return .terminateLater
         }
+    }
+    private func confirmQuitAfterFailure() -> Bool {
+        guard let message = workbench.recorder.error else { return true }
+        let alert = NSAlert(); alert.messageText = workbench.text("Не удалось сохранить запись", "The recording could not be saved")
+        alert.informativeText = message + "\n" + workbench.text("Промежуточный файл оставлен на диске и может не открыться.", "The partial file remains on disk and may not be playable.")
+        alert.addButton(withTitle: workbench.text("Выйти", "Quit")); alert.addButton(withTitle: workbench.text("Остаться", "Stay"))
+        let confirmed = alert.runModal() == .alertFirstButtonReturn
+        if !confirmed { finishingQuit = false; workbench.open(.recording) }
+        return confirmed
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         model?.saveNow()
+        workbench?.clipboard.setEnabled(false)
     }
+
+    func applicationDidHide(_ notification: Notification) { workbench?.windowVisible = false; clipboardPanel?.hide(); model?.isListOpen = false }
+    func applicationDidUnhide(_ notification: Notification) { workbench?.windowVisible = mainWindow?.window?.isVisible ?? false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // Opening the app again from Finder or Spotlight shows the list.
         if !flag {
-            model.isListOpen = true
+            mainWindow.present()
         }
         return false
     }
 
     // MARK: - Windows
 
-    private func showOnboarding() {
-        model.isListOpen = false
-        if onboarding == nil {
-            onboarding = OnboardingWindowController(
-                model: model,
-                onFinish: { [weak self] launchAtLogin in
-                    self?.finishOnboarding(launchAtLogin: launchAtLogin)
-                },
-                onClose: { [weak self] in
-                    self?.onboardingClosed()
-                }
-            )
-        }
-        onboarding?.present()
-    }
-
-    private func finishOnboarding(launchAtLogin: Bool) {
-        model.prefs.hasCompletedOnboarding = true
-        try? LoginItem.setEnabled(launchAtLogin)
-        // Show where Pumpkin lives.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            self?.model.isListOpen = true
-        }
-    }
-
-    private func onboardingClosed() {
-        onboarding = nil
-        if !model.isWatching {
-            model.retryWatching()
-        }
-    }
-
-    private func showSettings() {
-        model.isListOpen = false
-        if settings == nil {
-            settings = SettingsWindowController(model: model)
-        }
-        settings?.present()
-    }
+    private func showOnboarding() { workbench.intro = true; mainWindow.present() }
+    private func showSettings() { model.isListOpen = false; workbench.open(.settings) }
 
     private func showAbout() {
         model.isListOpen = false
         NSApp.activate()
         let credits = NSAttributedString(
-            string: "Every file gets its midnight.\nDownloads and screenshots, tidied on your schedule.\nOpen source. Everything stays on your Mac.",
+            string: "Record. Paste. Keep what matters.\nScreen recording, clipboard and file expiry.\nOpen source. Everything stays on your Mac.",
             attributes: [
                 .font: NSFont.systemFont(ofSize: 11),
                 .foregroundColor: NSColor.secondaryLabelColor,

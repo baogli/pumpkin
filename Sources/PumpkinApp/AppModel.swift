@@ -5,6 +5,7 @@ import PumpkinCore
 enum ItemKind: String, Hashable {
     case download
     case screenshot
+    case recording
 }
 
 struct PromptItem: Identifiable, Hashable {
@@ -97,6 +98,12 @@ struct AppActions {
 final class AppModel {
     let prefs: Preferences
 
+    private(set) var recordings: [RecordingEntry] = []
+    var deferredTrashCount = 0
+    var automaticPanelsSuppressed = false {
+        didSet { restartPromptTimer(); restartToastTimer() }
+    }
+    @ObservationIgnored var protectedURL: (URL) -> Bool = { _ in false }
     private(set) var items: [TrackedItem] = []
     private(set) var history: [TrashRecord] = []
     private(set) var prompts: [PromptBatch] = []
@@ -160,6 +167,19 @@ final class AppModel {
         self.engine = engine
 
         let state = store.load()
+        recordings = state.recordings.map { entry in
+            var copy = entry
+            if copy.status == .pending { copy.status = .failed; copy.error = "Recording was interrupted. A partial MP4 may not be playable." }
+            return copy
+        }
+        prompts = state.pendingGroups.compactMap { group in
+            let entries = group.snapshots.enumerated().compactMap { index, snapshot -> PromptItem? in
+                guard snapshot.matches(snapshot.url) else { return nil }
+                return PromptItem(snapshot: snapshot, source: group.sources.indices.contains(index) ? group.sources[index] : nil)
+            }
+            guard !entries.isEmpty else { return nil }
+            return PromptBatch(id: group.id, items: entries, stops: ShelfDuration.standardStops, selection: group.selection, kind: ItemKind(rawValue: group.kind) ?? .download, isDemo: false, arrivedAt: group.arrivedAt, touched: group.touched)
+        }
         items = state.items
         history = state.history
         pausedAt = state.pausedAt
@@ -185,8 +205,9 @@ final class AppModel {
 
     var scene: PanelScene? {
         if isListOpen { return .list }
+        if automaticPanelsSuppressed { return nil }
         if let confirmation { return .confirmation(confirmation) }
-        if let batch = prompts.first { return .prompt(batch) }
+        if !isPaused, let batch = prompts.first { return .prompt(batch) }
         if let toast { return .toast(toast) }
         return nil
     }
@@ -209,10 +230,15 @@ final class AppModel {
         retryTimer?.invalidate()
         retryTimer = nil
 
+        guard prefs.watchDownloads else { isWatching = false; folderProblem = nil; startScreenshotWatching(); expireDue(); return }
         let folder = prefs.watchedFolder
         let watcher = FolderWatcher(folder: folder)
         watcher.onNewItems = { [weak self] snapshots in
-            MainActor.assumeIsolated { self?.handleNewItems(snapshots, kind: .download) }
+            MainActor.assumeIsolated {
+                let screenshots = snapshots.filter { Screenshots.isTaggedScreenCapture($0.url) }
+                self?.handleNewItems(snapshots.filter { !Screenshots.isTaggedScreenCapture($0.url) }, kind: .download)
+                self?.handleNewItems(screenshots, kind: .screenshot)
+            }
         }
         watcher.onScan = { [weak self] listing in
             MainActor.assumeIsolated { self?.handleScan(listing, in: folder) }
@@ -225,7 +251,7 @@ final class AppModel {
         // within reason: a months-old backlog would just be noise.
         let since = lastSeenAt.map { max($0, Date().addingTimeInterval(-3 * 86_400)) }
         do {
-            try watcher.start(newSince: since, alreadyKnown: Set(items.map(\.fileID)))
+            try watcher.start(newSince: since, alreadyKnown: Set(items.filter { ItemLocator.canonicalPath($0.folderURL) == ItemLocator.canonicalPath(folder) }.map(\.fileID)))
             self.watcher = watcher
             isWatching = true
             folderProblem = nil
@@ -243,7 +269,7 @@ final class AppModel {
         let screenshots = prefs.watchScreenshots ? resolveScreenshotFolder() : nil
         Task {
             // Asks macOS for access off the main thread, so its prompt can't stall the UI.
-            _ = await FolderAccess.check(folder)
+            if prefs.watchDownloads { _ = await FolderAccess.check(folder) }
             if let screenshots {
                 _ = await FolderAccess.check(screenshots)
             }
@@ -290,10 +316,10 @@ final class AppModel {
             }
         }
 
-        guard ItemLocator.canonicalPath(folder) != ItemLocator.canonicalPath(prefs.watchedFolder) else { return }
+        guard !prefs.watchDownloads || ItemLocator.canonicalPath(folder) != ItemLocator.canonicalPath(prefs.watchedFolder) else { return }
 
         let watcher = FolderWatcher(folder: folder)
-        watcher.accept = { Screenshots.isScreenCapture($0.url) }
+        watcher.accept = { Screenshots.isTaggedScreenCapture($0.url) }
         watcher.onNewItems = { [weak self] snapshots in
             MainActor.assumeIsolated { self?.handleNewItems(snapshots, kind: .screenshot) }
         }
@@ -308,7 +334,7 @@ final class AppModel {
         }
         let since = lastSeenAt.map { max($0, Date().addingTimeInterval(-3 * 86_400)) }
         do {
-            try watcher.start(newSince: since, alreadyKnown: Set(items.map(\.fileID)))
+            try watcher.start(newSince: since, alreadyKnown: Set(items.filter { ItemLocator.canonicalPath($0.folderURL) == ItemLocator.canonicalPath(folder) }.map(\.fileID)))
             screenshotWatcher = watcher
         } catch {
             reportScreenshotProblem(folder)
@@ -325,7 +351,6 @@ final class AppModel {
 
     func changeWatchedFolder(to url: URL?) {
         prefs.customFolderPath = url?.path
-        prompts.removeAll()
         // Existing files in the new folder are not "new downloads".
         lastSeenAt = nil
         persist()
@@ -336,7 +361,7 @@ final class AppModel {
         retryTimer?.invalidate()
         retryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.isWatching else { return }
+                guard let self, self.prefs.watchDownloads, !self.isWatching else { return }
                 self.retryWatching()
             }
         }
@@ -351,7 +376,7 @@ final class AppModel {
         }
     }
 
-    private func handleScan(_ listing: [FileSnapshot], in folder: URL) {
+    func handleScan(_ listing: [FileSnapshot], in folder: URL) {
         let watchedPath = ItemLocator.canonicalPath(folder)
         if watchedPath == ItemLocator.canonicalPath(prefs.watchedFolder), folderProblem != nil {
             folderProblem = nil
@@ -362,7 +387,7 @@ final class AppModel {
         var dropped: Set<UUID> = []
 
         for index in items.indices where ItemLocator.canonicalPath(items[index].folderURL) == watchedPath {
-            if let entry = byID[items[index].fileID] {
+            if let entry = byID[items[index].fileID], items[index].volumeID == nil || entry.volumeID == items[index].volumeID {
                 // Follow renames so the list shows the current name.
                 if entry.url.path != items[index].path {
                     items[index].path = entry.url.path
@@ -385,11 +410,11 @@ final class AppModel {
         // Forget questions about files that vanished before they were answered.
         var promptsChanged = false
         var updatedPrompts = prompts
-        for index in updatedPrompts.indices
-        where updatedPrompts[index].items.first.map({ ItemLocator.canonicalPath($0.url.deletingLastPathComponent()) == watchedPath }) ?? false {
+        for index in updatedPrompts.indices {
             let before = updatedPrompts[index].items
             updatedPrompts[index].items = before.compactMap { item in
-                guard let entry = byID[item.id] else { return nil }
+                guard ItemLocator.canonicalPath(item.url.deletingLastPathComponent()) == watchedPath else { return item }
+                guard let entry = byID[item.id], item.snapshot.volumeID == nil || entry.volumeID == item.snapshot.volumeID else { return nil }
                 var copy = item
                 copy.snapshot.url = entry.url
                 return copy
@@ -407,15 +432,19 @@ final class AppModel {
         }
 
         lastSeenAt = Date()
-        if changed || Date().timeIntervalSince(lastPersistedAt) > 60 {
+        if changed || promptsChanged || Date().timeIntervalSince(lastPersistedAt) > 60 {
             persist()
         }
     }
 
-    private func handleNewItems(_ snapshots: [FileSnapshot], kind: ItemKind) {
-        let tracked = Set(items.map(\.fileID))
-        let queued = Set(prompts.flatMap { $0.items.map(\.id) })
-        var fresh = snapshots.filter { !tracked.contains($0.fileID) && !queued.contains($0.fileID) }
+    func handleNewItems(_ snapshots: [FileSnapshot], kind: ItemKind) {
+        var fresh = snapshots.filter { snapshot in
+            !items.contains(where: { $0.fileID == snapshot.fileID && ($0.volumeID == nil || $0.volumeID == snapshot.volumeID) && ItemLocator.isDirectChild(snapshot.url, of: $0.folderURL) })
+                && !prompts.contains(where: { $0.items.contains { $0.snapshot.fileID == snapshot.fileID && ($0.snapshot.volumeID == nil || $0.snapshot.volumeID == snapshot.volumeID) && ItemLocator.canonicalPath($0.url.deletingLastPathComponent()) == ItemLocator.canonicalPath(snapshot.url.deletingLastPathComponent()) } })
+                && !DownloadFilter.isIgnorable(name: snapshot.name)
+                && !recordings.contains(where: { $0.protects(snapshot.url) })
+                && !protectedURL(snapshot.url) && !ItemLocator.isInTrash(snapshot.url)
+        }
         if !prefs.askAboutFolders {
             fresh.removeAll(where: \.isFolder)
         }
@@ -424,7 +453,7 @@ final class AppModel {
             enqueue([sample], kind: .download, isDemo: true)
         }
         let regular = fresh.filter { !demoFileIDs.contains($0.fileID) }
-        guard !regular.isEmpty, !isPaused else { return }
+        guard !regular.isEmpty else { return }
         enqueue(regular, kind: kind, isDemo: false)
     }
 
@@ -441,8 +470,10 @@ final class AppModel {
         // Several files landing together become one question, as long as the
         // user hasn't started answering it yet.
         if !isDemo, let last = prompts.indices.last, !prompts[last].isDemo, !prompts[last].touched,
-           prompts[last].kind == kind, Date().timeIntervalSince(prompts[last].arrivedAt) < 10 {
+           prompts[last].kind == kind, Date().timeIntervalSince(prompts[last].arrivedAt) < 10,
+           prompts[last].items.first.map({ first in newItems.allSatisfy { ItemLocator.canonicalPath($0.url.deletingLastPathComponent()) == ItemLocator.canonicalPath(first.url.deletingLastPathComponent()) } }) == true {
             prompts[last].items.append(contentsOf: newItems)
+            persist()
             if last == 0 {
                 restartPromptTimer()
             }
@@ -452,6 +483,7 @@ final class AppModel {
         let stops = isDemo ? ShelfDuration.demoStops : ShelfDuration.standardStops
         let selection = isDemo ? 0 : ShelfDuration.nearestIndex(to: prefs.defaultDuration, in: stops)
         prompts.append(PromptBatch(id: UUID(), items: newItems, stops: stops, selection: selection, kind: kind, isDemo: isDemo, arrivedAt: Date()))
+        persist()
         if isDemo {
             demoStatus = .waitingForAnswer
         }
@@ -465,11 +497,11 @@ final class AppModel {
     func select(_ index: Int, in batchID: UUID) {
         guard let position = prompts.firstIndex(where: { $0.id == batchID }) else { return }
         let clamped = min(max(index, 0), prompts[position].stops.count - 1)
-        if !prompts[position].touched {
-            prompts[position].touched = true
-        }
-        guard prompts[position].selection != clamped else { return }
+        let newlyTouched = !prompts[position].touched
+        prompts[position].touched = true
+        guard prompts[position].selection != clamped else { if newlyTouched { persist() }; return }
         prompts[position].selection = clamped
+        persist()
         if position == 0 {
             restartPromptTimer()
         }
@@ -484,7 +516,7 @@ final class AppModel {
     func confirm(_ batchID: UUID) {
         guard let position = prompts.firstIndex(where: { $0.id == batchID }) else { return }
         let batch = prompts.remove(at: position)
-        let now = Date()
+        let now = clock(Date())
         let duration = batch.selectedDuration.seconds
 
         let added: [TrackedItem] = batch.items.compactMap { entry in
@@ -499,7 +531,9 @@ final class AppModel {
                 isFolder: entry.snapshot.isFolder,
                 source: entry.source,
                 startedAt: now,
-                expiresAt: now.addingTimeInterval(duration)
+                expiresAt: now.addingTimeInterval(duration),
+                volumeID: ItemLocator.volumeID(of: url),
+                kind: batch.kind.rawValue
             )
         }
         items.append(contentsOf: added)
@@ -528,6 +562,7 @@ final class AppModel {
     func keep(_ batchID: UUID) {
         guard let position = prompts.firstIndex(where: { $0.id == batchID }) else { return }
         let batch = prompts.remove(at: position)
+        persist()
         if batch.isDemo {
             demoStatus = .kept
         }
@@ -544,6 +579,7 @@ final class AppModel {
         switch prefs.unansweredPolicy {
         case .keep:
             prompts.removeFirst()
+            persist()
             if batch.isDemo {
                 demoStatus = .kept
             }
@@ -562,19 +598,19 @@ final class AppModel {
     }
 
     private func currentURL(of entry: PromptItem) -> URL? {
-        if FolderScanner.fileID(of: entry.url) == entry.snapshot.fileID {
+        if entry.snapshot.matches(entry.url) {
             return entry.url
         }
         // Renamed since it arrived: find it again by inode.
         let folder = entry.url.deletingLastPathComponent()
-        return (try? FolderScanner.scan(folder))?.first { $0.fileID == entry.snapshot.fileID }?.url
+        return (try? FolderScanner.scan(folder))?.first { entry.snapshot.matches($0.url) }?.url
     }
 
     private func restartPromptTimer() {
         promptTimer?.invalidate()
         promptTimer = nil
         let timeout = prefs.promptTimeout
-        guard let batch = prompts.first, !batch.isDemo, timeout > 0, confirmation == nil, !isListOpen, !isPointerInside else {
+        guard !automaticPanelsSuppressed, !isPaused, let batch = prompts.first, !batch.isDemo, timeout > 0, confirmation == nil, !isListOpen, !isPointerInside else {
             promptDeadline = nil
             return
         }
@@ -598,6 +634,7 @@ final class AppModel {
     }
 
     private func showToast(_ kind: Toast.Kind) {
+        if automaticPanelsSuppressed, case .trashed(let records) = kind { deferredTrashCount += records.count }
         guard !isListOpen else { return }
         toast = Toast(kind: kind)
         restartToastTimer()
@@ -606,7 +643,7 @@ final class AppModel {
     private func restartToastTimer() {
         toastTimer?.invalidate()
         toastTimer = nil
-        guard let toast, !isPointerInside else { return }
+        guard !automaticPanelsSuppressed, let toast, !isPointerInside else { return }
         let duration: TimeInterval
         switch toast.kind {
         case .trashed: duration = 6
@@ -668,7 +705,7 @@ final class AppModel {
         if !trashed.isEmpty {
             history.insert(contentsOf: trashed, at: 0)
             trimHistory()
-            if prefs.playSound {
+            if prefs.playSound && !automaticPanelsSuppressed {
                 Sounds.playTrash()
             }
             showToast(.trashed(trashed))
@@ -704,7 +741,7 @@ final class AppModel {
             items.removeAll { $0.id == itemID }
             history.insert(record, at: 0)
             trimHistory()
-            if prefs.playSound {
+            if prefs.playSound && !automaticPanelsSuppressed {
                 Sounds.playTrash()
             }
         case .missing, .movedOut:
@@ -780,6 +817,7 @@ final class AppModel {
             pausedAt = Date()
         }
         persist()
+        restartPromptTimer()
         scheduleExpiryTimer()
         expireDue()
     }
@@ -817,10 +855,87 @@ final class AppModel {
         persist()
     }
 
+    private var persistedState: PersistedState {
+        PersistedState(items: items, history: history, lastSeenAt: lastSeenAt, pausedAt: pausedAt,
+            recordings: recordings, pendingGroups: prompts.filter { !$0.isDemo }.map {
+                PendingFileGroup(id: $0.id, snapshots: $0.items.map(\.snapshot), sources: $0.items.map(\.source), kind: $0.kind.rawValue, selection: $0.selection, arrivedAt: $0.arrivedAt, touched: $0.touched)
+            })
+    }
+
+    @discardableResult
+    func beginRecording(url: URL, screen: String, audio: String, format: String) throws -> UUID {
+        let entry = RecordingEntry(path: url.path, screen: screen, audio: audio, format: format)
+        recordings.insert(entry, at: 0)
+        do { try store.save(persistedState) }
+        catch { recordings.removeAll { $0.id == entry.id }; throw error }
+        return entry.id
+    }
+
+    func finishRecording(_ id: UUID, duration: Double, error: String? = nil) {
+        guard let index = recordings.firstIndex(where: { $0.id == id }) else { return }
+        recordings[index].duration = duration.isFinite ? max(0, duration) : 0
+        recordings[index].status = error == nil ? .finished : .failed
+        recordings[index].error = error
+        let url = recordings[index].url
+        if let snapshot = FolderScanner.snapshot(of: url) {
+            recordings[index].size = snapshot.size
+            recordings[index].fileID = snapshot.fileID
+            var info = stat(); if lstat(url.path, &info) == 0 { recordings[index].volumeID = UInt64(info.st_dev) }
+            recordings[index].bookmark = ItemLocator.makeBookmark(for: url)
+        }
+        persist()
+    }
+
+    func importRecording(_ url: URL, duration: Double = 0) throws {
+        guard url.pathExtension.lowercased() == "mp4", !url.lastPathComponent.lowercased().hasSuffix(".partial.mp4"), FolderScanner.snapshot(of: url) != nil else { return }
+        guard !recordings.contains(where: { $0.protects(url) }) else { return }
+        let id = try beginRecording(url: url, screen: "Imported", audio: "Unknown", format: "MP4")
+        finishRecording(id, duration: duration)
+        let front = prompts.first?.id
+        if let imported = recordings.first(where: { $0.id == id }) {
+            for index in prompts.indices { prompts[index].items.removeAll { imported.matches($0.url) } }
+        }
+        prompts.removeAll { $0.items.isEmpty }
+        if prompts.first?.id != front { restartPromptTimer() }
+        persist()
+    }
+
+    func removeRecording(_ id: UUID) {
+        recordings.removeAll { $0.id == id }
+        persist()
+    }
+
+    func scheduleRecording(_ id: UUID, duration: ShelfDuration) {
+        guard let entry = recordings.first(where: { $0.id == id }), entry.status == .finished,
+              recordingTrash(entry) == nil,
+              let url = entry.locatedURL, !ItemLocator.isInTrash(url), let snapshot = FolderScanner.snapshot(of: url) else { return }
+        if let tracked = items.first(where: { $0.fileID == snapshot.fileID && $0.folderPath == url.deletingLastPathComponent().path }) {
+            setTimer(for: tracked.id, to: duration); return
+        }
+        let now = clock(Date())
+        items.append(TrackedItem(name: url.lastPathComponent, path: url.path, folderPath: url.deletingLastPathComponent().path,
+            fileID: snapshot.fileID, bookmark: ItemLocator.makeBookmark(for: url), size: snapshot.size, isFolder: false,
+            source: "Pumpkin Recording", startedAt: now, expiresAt: now.addingTimeInterval(duration.seconds), volumeID: ItemLocator.volumeID(of: url), kind: ItemKind.recording.rawValue))
+        persist(); scheduleExpiryTimer()
+    }
+
+    func recordingTrash(_ entry: RecordingEntry) -> TrashRecord? {
+        history.first { record in
+            guard record.canPutBack, let path = record.trashedPath else { return false }
+            return entry.matches(URL(fileURLWithPath: path))
+        }
+    }
+
+    func setDownloadsEnabled(_ enabled: Bool) {
+        prefs.watchDownloads = enabled
+        if enabled { retryWatching() }
+        else { watcher?.stop(); watcher = nil; isWatching = false; folderProblem = nil; retryTimer?.invalidate(); startScreenshotWatching() }
+    }
+
     private func persist() {
         lastPersistedAt = Date()
         do {
-            try store.save(PersistedState(items: items, history: history, lastSeenAt: lastSeenAt, pausedAt: pausedAt))
+            try store.save(persistedState)
         } catch {
             NSLog("Pumpkin: couldn’t save state: \(error.localizedDescription)")
         }
@@ -832,5 +947,13 @@ final class AppModel {
         if history.count > Self.historyLimit {
             history.removeLast(history.count - Self.historyLimit)
         }
+    }
+    deinit {
+        for timer in [screenshotLocationTimer, expiryTimer, promptTimer, toastTimer, confirmationTimer, retryTimer] { timer?.invalidate() }
+        for token in notificationTokens {
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+            NotificationCenter.default.removeObserver(token)
+        }
+        watcher?.stop(); screenshotWatcher?.stop()
     }
 }
