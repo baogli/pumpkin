@@ -99,6 +99,12 @@ Upgrading from the earlier local ShelfLife version: quit it before starting Pump
 
 The video uses actual Pumpkin panels with synthetic demo files and accelerated example timers. The artwork is AI-generated; typography and animation remain editable. See [launch materials](media/launch/README.md).
 
+## Pumpkin 2.0 design specification
+
+The next version is planned to bring screen recording, recent clipboard text, and file expiry into one app. The [designer handoff pack](docs/v2/README.md) contains the proposed product behavior, screens and states, integration requirements, and acceptance criteria (in Russian).
+
+This is a specification for design and later implementation. The current 1.0 release provides file expiry; the combined 2.0 app has not been built or released yet.
+
 ## License
 
 [MIT](LICENSE). Use it, change it, share it. Third-party font licenses and artwork provenance are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
